@@ -11,14 +11,14 @@ builder.Services.AddCors(options =>
         name: myPolicyName,
         configurePolicy: policy =>
         {
-            policy.WithOrigins("http://localhost:5173");
+            policy.WithOrigins("http://localhost:5173").AllowAnyMethod().AllowAnyHeader();
         }
     );
 });
 
 var app = builder.Build();
 
-app.UseCors(configurePolicy: policy => policy.WithOrigins("http://localhost:5173"));
+app.UseCors(myPolicyName);
 
 app.MapGet("/", () => "Hello World!");
 
@@ -30,22 +30,56 @@ app.MapGet(
 
 app.MapPost(
     "/api",
-    async (Data data, AppDB db) =>
+    async (Request req, AppDB db) =>
     {
-        var personals = data.Personals;
-        var hobbies = data.Hobbies;
-        var genders = data.Genders;
-
-        for (int i = 0; i < personals.Count; i++)
+        // Step 1: Insert gender
+        var existingGenders = await db.Genders.ToDictionaryAsync(g => g.Name!, g => g.Id);
+        foreach (var genderName in req.Payload.Select(p => p.GenderName).Distinct())
         {
-            if ((i + 1) % 100 == 0 && personals[i].HobbyId == 1)
+            if (genderName != null && !existingGenders.ContainsKey(genderName))
             {
-                return Results.BadRequest($"Error at row {i + 1}: hobby 'Tidur' is not allowed.");
+                var gender = new Gender { Name = genderName };
+                db.Genders.Add(gender);
+                await db.SaveChangesAsync();
+                existingGenders[genderName] = gender.Id;
             }
         }
 
-        db.Hobbies.AddRange(hobbies);
-        db.Genders.AddRange(genders);
+        // Step 2: Insert hobbie
+        var existingHobbies = await db.Hobbies.ToDictionaryAsync(h => h.Name!, h => h.Id);
+        foreach (var hobbyName in req.Payload.Select(p => p.HobbyName).Distinct())
+        {
+            if (hobbyName != null && !existingHobbies.ContainsKey(hobbyName))
+            {
+                var hobby = new Hobby { Name = hobbyName };
+                db.Hobbies.Add(hobby);
+                await db.SaveChangesAsync();
+                existingHobbies[hobbyName] = hobby.Id;
+            }
+        }
+
+        // Step 3: validasi Hobby
+        for (int i = 0; i < req.Payload.Count; i++)
+        {
+            if ((i + 1) % 100 == 0 && req.Payload[i].HobbyName == "Tidur")
+            {
+                return Results.Text(
+                    $"Terdapat error pada baris {i + 1} tidak menyukai hobi tidur"
+                );
+            }
+        }
+
+        // Step 4: insert personal
+        var personals = req
+            .Payload.Select(p => new Personal
+            {
+                Name = p.Name,
+                GenderId = existingGenders[p.GenderName!],
+                HobbyId = existingHobbies[p.HobbyName!],
+                Age = p.Age,
+            })
+            .ToList();
+
         db.Personals.AddRange(personals);
         await db.SaveChangesAsync();
 
