@@ -63,7 +63,7 @@ app.MapPost(
         {
             if ((i + 1) % 100 == 0 && req.Payload[i].HobbyName == "Tidur")
             {
-                return Results.Text(
+                return Results.BadRequest(
                     $"Terdapat error pada baris {i + 1} tidak menyukai hobi tidur"
                 );
             }
